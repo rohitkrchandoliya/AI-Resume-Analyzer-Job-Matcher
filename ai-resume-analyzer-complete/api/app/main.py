@@ -341,7 +341,7 @@ async def analyze_resume(
 
     # File extensions alone are not reliable; reject obviously mismatched formats
     # before passing the bytes to PDF/DOCX parsers.
-    if ext == "pdf" and not data.startswith(b"%PDF-"):
+    if ext == "pdf" and b"%PDF-" not in data[:1024]:
         raise HTTPException(400, "The uploaded file is not a valid PDF")
     if ext == "docx" and not data.startswith(b"PK\\x03\\x04"):
         raise HTTPException(400, "The uploaded file is not a valid DOCX document")
