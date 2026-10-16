@@ -329,14 +329,27 @@ async def analyze_resume(
     if ext not in {"pdf", "docx"}:
         raise HTTPException(400, "Only PDF and DOCX resumes are supported")
 
-    data = await file.read()
-    if len(data) > MAX_UPLOAD_MB * 1024 * 1024:
+    # Read at most the configured limit plus one byte. Reading the entire upload
+    # first lets a very large request consume memory before the size check runs.
+    max_upload_bytes = MAX_UPLOAD_MB * 1024 * 1024
+    if max_upload_bytes <= 0:
+        raise HTTPException(500, "MAX_UPLOAD_MB must be a positive integer")
+
+    data = await file.read(max_upload_bytes + 1)
+    if len(data) > max_upload_bytes:
         raise HTTPException(413, f"File exceeds {MAX_UPLOAD_MB} MB limit")
+
+    # File extensions alone are not reliable; reject obviously mismatched formats
+    # before passing the bytes to PDF/DOCX parsers.
+    if ext == "pdf" and not data.startswith(b"%PDF-"):
+        raise HTTPException(400, "The uploaded file is not a valid PDF")
+    if ext == "docx" and not data.startswith(b"PK\\x03\\x04"):
+        raise HTTPException(400, "The uploaded file is not a valid DOCX document")
 
     try:
         text = extract_pdf(data) if ext == "pdf" else extract_docx(data)
-    except Exception as exc:
-        raise HTTPException(400, f"Could not parse resume: {exc}")
+    except Exception:
+        raise HTTPException(400, "Could not parse resume. Check that the file is valid and not corrupted")
     if len(text.strip()) < 80:
         raise HTTPException(400, "Could not extract enough text from this resume")
 
